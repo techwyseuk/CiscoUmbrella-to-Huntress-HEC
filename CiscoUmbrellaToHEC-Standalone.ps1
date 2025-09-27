@@ -7,7 +7,7 @@ param(
     [string]$HuntressHecToken = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 )
 
-# Configuration
+# Standard Huntress HEC URL (same for all customers)
 $huntressHecUrl = "https://hec.huntress.io/services/collector/raw"
 
 # Cisco Umbrella API endpoints (corrected based on Postman testing)
@@ -103,7 +103,7 @@ try {
     Write-Host "================================================"
     
     # Validate configuration
-    if (-not $ApiKey -or -not $ApiSecret -or -not $huntressHecUrl -or -not $HuntressHecToken) {
+    if (-not $ApiKey -or -not $ApiSecret -or -not $HuntressHecToken) {
         throw "Missing required configuration. Please provide ApiKey, ApiSecret, and HuntressHecToken parameters."
     }
     

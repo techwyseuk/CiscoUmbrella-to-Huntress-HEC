@@ -7,8 +7,10 @@ param($Timer)
 # Get configuration from Azure Function App Settings
 $umbrellaApiKey = $env:UMBRELLA_API_KEY
 $umbrellaApiSecret = $env:UMBRELLA_API_SECRET
-$huntressHecUrl = $env:HUNTRESS_HEC_URL
 $huntressHecToken = $env:HUNTRESS_HEC_TOKEN
+
+# Standard Huntress HEC URL (same for all customers)
+$huntressHecUrl = "https://hec.huntress.io/services/collector/raw"
 
 # Cisco Umbrella API endpoints (corrected based on Postman testing)
 $umbrellaAuthUrl = "https://api.umbrella.com/auth/v2/token"
@@ -71,7 +73,7 @@ function Get-UmbrellaLogs {
     
     foreach ($logType in $logTypes) {
         try {
-            $logUrl = "$BaseUrl/$logType?from=-10minutes&to=now&limit=5000"
+            $logUrl = "$BaseUrl/$logType" + "?from=-10minutes&to=now&limit=5000"
             Write-Host "Fetching $logType logs from: $logUrl"
             
             $response = Invoke-RestMethod -Uri $logUrl -Headers $headers -Method Get -TimeoutSec 60
@@ -102,8 +104,8 @@ try {
     Write-Host "Starting Cisco Umbrella to Huntress HEC log shipping..."
     
     # Validate configuration
-    if (-not $umbrellaApiKey -or -not $umbrellaApiSecret -or -not $huntressHecUrl -or -not $huntressHecToken) {
-        throw "Missing required configuration. Please set UMBRELLA_API_KEY, UMBRELLA_API_SECRET, HUNTRESS_HEC_URL, and HUNTRESS_HEC_TOKEN in Function App Settings."
+    if (-not $umbrellaApiKey -or -not $umbrellaApiSecret -or -not $huntressHecToken) {
+        throw "Missing required configuration. Please set UMBRELLA_API_KEY, UMBRELLA_API_SECRET, and HUNTRESS_HEC_TOKEN in Function App Settings."
     }
     
     # Get OAuth2 access token

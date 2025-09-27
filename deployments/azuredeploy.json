@@ -1,0 +1,202 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "umbrellaApiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Cisco Umbrella API Key"
+      }
+    },
+    "umbrellaApiSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Cisco Umbrella API Secret"
+      }
+    },
+    "huntressHecToken": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Huntress HEC Token"
+      }
+    }
+  },
+  "variables": {
+    "functionAppName": "[concat('cisco-umbrella-hec-', uniqueString(resourceGroup().id))]",
+    "location": "[resourceGroup().location]",
+    "applicationInsightsName": "[concat(variables('functionAppName'), '-insights')]",
+    "storageAccountName": "[concat('ciscohecs', uniqueString(resourceGroup().id))]",
+    "storageBlobContainerName": "[concat('app-package-', uniqueString(resourceGroup().id))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2022-05-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "defaultToOAuthAuthentication": true,
+        "allowBlobPublicAccess": false,
+        "allowSharedKeyAccess": true,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2022-05-01",
+      "name": "[concat(variables('storageAccountName'), '/default/', variables('storageBlobContainerName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('applicationInsightsName')]",
+      "location": "[variables('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "Request_Source": "rest"
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2018-11-01",
+      "name": "[concat('ASP-', resourceGroup().name, '-', uniqueString(resourceGroup().id))]",
+      "location": "[variables('location')]",
+      "kind": "functionapp",
+      "sku": {
+        "Tier": "FlexConsumption",
+        "Name": "FC1"
+      },
+      "properties": {
+        "name": "[concat('ASP-', resourceGroup().name, '-', uniqueString(resourceGroup().id))]",
+        "reserved": true,
+        "zoneRedundant": false
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-03-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[variables('location')]",
+      "kind": "functionapp,linux",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', concat('ASP-', resourceGroup().name, '-', uniqueString(resourceGroup().id)))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))]"
+      ],
+      "tags": {
+        "hidden-link: /app-insights-resource-id": "[resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))]"
+      },
+      "properties": {
+        "name": "[variables('functionAppName')]",
+        "siteConfig": {
+          "cors": {
+            "allowedOrigins": [
+              "https://portal.azure.com"
+            ]
+          },
+          "http20Enabled": true,
+          "functionAppScaleLimit": 100
+        },
+        "clientAffinityEnabled": false,
+        "virtualNetworkSubnetId": null,
+        "functionAppConfig": {
+          "deployment": {
+            "storage": {
+              "type": "blobcontainer",
+              "value": "[concat('https://', variables('storageAccountName'), '.blob.', environment().suffixes.storage, '/', variables('storageBlobContainerName'))]",
+              "authentication": {
+                "type": "storageaccountconnectionstring",
+                "userAssignedIdentityResourceId": null,
+                "storageAccountConnectionStringName": "DEPLOYMENT_STORAGE_CONNECTION_STRING"
+              }
+            }
+          },
+          "runtime": {
+            "name": "powershell",
+            "version": "7.4"
+          },
+          "scaleAndConcurrency": {
+            "alwaysReady": null,
+            "maximumInstanceCount": 100,
+            "instanceMemoryMB": 2048,
+            "triggers": null
+          }
+        },
+        "publicNetworkAccess": "Enabled",
+        "httpsOnly": true,
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', concat('ASP-', resourceGroup().name, '-', uniqueString(resourceGroup().id)))]",
+        "sku": "FlexConsumption"
+      },
+      "resources": [
+        {
+          "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+          "apiVersion": "2022-09-01",
+          "name": "[concat(variables('functionAppName'), '/scm')]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+          ],
+          "properties": {
+            "allow": false
+          }
+        },
+        {
+          "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+          "apiVersion": "2022-09-01",
+          "name": "[concat(variables('functionAppName'), '/ftp')]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+          ],
+          "properties": {
+            "allow": false
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2022-03-01",
+      "name": "[concat(variables('functionAppName'), '/appsettings')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+      ],
+      "properties": {
+        "DEPLOYMENT_STORAGE_CONNECTION_STRING": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-05-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]",
+        "APPLICATIONINSIGHTS_CONNECTION_STRING": "[reference(resourceId('Microsoft.Insights/components', variables('applicationInsightsName')), '2020-02-02').ConnectionString]",
+        "AzureWebJobsStorage": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2022-05-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]",
+        "FUNCTIONS_EXTENSION_VERSION": "~4",
+        "POWERShell_VERSION": "7.4",
+        "UMBRELLA_API_KEY": "[parameters('umbrellaApiKey')]",
+        "UMBRELLA_API_SECRET": "[parameters('umbrellaApiSecret')]",
+        "HUNTRESS_HEC_TOKEN": "[parameters('huntressHecToken')]"
+      }
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppName')]"
+    },
+    "functionAppUrl": {
+      "type": "string",
+      "value": "[concat('https://', variables('functionAppName'), '.azurewebsites.net')]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "applicationInsightsName": {
+      "type": "string",
+      "value": "[variables('applicationInsightsName')]"
+    }
+  }
+}
